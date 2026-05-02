@@ -33,21 +33,54 @@ from catalyst.config import RuleConfig, load_rules
 from catalyst.events.base import EventStore
 from catalyst.markets.base import MarketAdapter
 from catalyst.types import Event, EventType, Market, Score, ScoreReport
-from catalyst.windowing import window_returns
+from catalyst.windowing import abnormal_window_returns, window_returns
 
 
 # ---------- rule-based score --------------------------------------------------
 
+def _runup_dampener(runup: float, cfg: RuleConfig) -> float:
+    """Lee-Swaminathan (2000) / Hong-Stein (1999) post-event drift correction:
+    the more a stock has already run up before the catalyst, the smaller
+    the residualized post-event drift. We dampen rule_score by:
+
+        max(floor, 1 - max(0, runup) * coef)
+
+    Negative runups (price already fell) leave the score untouched —
+    that is, we do not boost mean-reversion plays here.
+    """
+    if cfg.runup.coef <= 0:
+        return 1.0
+    return max(cfg.runup.floor, 1.0 - max(0.0, runup) * cfg.runup.coef)
+
+
 def rule_score(event: Event, cfg: RuleConfig) -> float:
-    """Signed weight * scaled magnitude * confidence."""
+    """Signed weight * scaled magnitude * confidence * runup_dampener.
+
+    The (scale, cap) used to clip magnitude depends on
+    `event.extras["magnitude_source"]`:
+
+        * "sue"               -> overrides table for SUE  (scale 1.0, cap 4.0)
+        * "revision_z"        -> overrides table for revision-z
+        * "baseline_adjusted" -> overrides table or per-event default
+        * default / fallback  -> per-event scale + cap from configs/event_rules.yaml
+    """
     rule = cfg.for_event(event.event_type)
     if rule is None:
         return 0.0
     if event.magnitude < rule.min_magnitude:
         return 0.0
-    scale = rule.magnitude_scale if rule.magnitude_scale > 0 else 1.0
-    multiplier = min(event.magnitude / scale, rule.magnitude_cap)
-    return float(rule.weight * multiplier * event.confidence)
+
+    source = event.magnitude_source()
+    override = cfg.magnitude_override(event.event_type, source)
+    scale = override.scale if override else (rule.magnitude_scale or 1.0)
+    cap = override.cap if override else rule.magnitude_cap
+    if scale <= 0:
+        scale = 1.0
+    multiplier = min(event.magnitude / scale, cap)
+
+    base = rule.weight * multiplier * event.confidence
+    runup = float(event.extras.get("pre_event_runup", 0.0))
+    return float(base * _runup_dampener(runup, cfg))
 
 
 def aggregate_rule_scores(scores: Iterable[float], decay: float, cap: float) -> float:
@@ -97,8 +130,16 @@ def realized_returns(
     events: list[Event],
     adapter: MarketAdapter,
     horizon_days: int,
+    *,
+    use_abnormal: bool = True,
 ) -> list[AnalogSample]:
-    """Compute (cum_return, max_drawdown) for each analog using the adapter."""
+    """Compute (cum_return, max_drawdown) for each analog using the adapter.
+
+    When `use_abnormal=True` (default), returns are benchmark-adjusted in
+    the spirit of MacKinlay (1997) — the cumulative excess return over
+    the same window. Falls back to raw returns when no benchmark is
+    available, which keeps the function usable with minimal adapters.
+    """
     out: list[AnalogSample] = []
     for ev in events:
         # Pull a generous window so we have enough trading days even with holidays.
@@ -111,7 +152,20 @@ def realized_returns(
         if prices is None or prices.empty:
             continue
         prices.index = pd.to_datetime(prices.index)
-        wr = window_returns(prices, ev.occurred_at, horizon_days)
+
+        bench_prices = None
+        if use_abnormal:
+            try:
+                bench_prices = adapter.benchmark(start, end.date())
+                if bench_prices is not None and not bench_prices.empty:
+                    bench_prices.index = pd.to_datetime(bench_prices.index)
+            except (NotImplementedError, Exception):
+                bench_prices = None
+
+        wr = (
+            abnormal_window_returns(prices, bench_prices, ev.occurred_at, horizon_days)
+            if use_abnormal else window_returns(prices, ev.occurred_at, horizon_days)
+        )
         if wr is None:
             continue
         out.append(AnalogSample(event=ev, cum_return=wr.cum_return, max_drawdown=wr.max_drawdown))
@@ -172,7 +226,9 @@ class Scorer:
         rs = rule_score(event, self.cfg)
 
         analogs = select_analogs(event, self.store, self.cfg, as_of=as_of)
-        samples = realized_returns(analogs, self.adapter, horizon)
+        samples = realized_returns(
+            analogs, self.adapter, horizon, use_abnormal=self.cfg.use_abnormal_returns,
+        )
 
         post = self.cfg.posterior
         if len(samples) >= post.min_analogs:

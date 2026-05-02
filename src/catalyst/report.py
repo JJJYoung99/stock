@@ -22,8 +22,8 @@ def render_score_report(report: ScoreReport) -> str:
     lines.append("Events:")
     for ev, sc in zip(report.events, report.per_event):
         lines.append(
-            f"  - {ev.event_type.value:<20} mag={ev.magnitude:+.4f} "
-            f"src={ev.source:<10} rule={sc.rule_score:+.3f} "
+            f"  - {ev.event_type.value:<20} mag={ev.magnitude:+.4f} ({ev.magnitude_source()})"
+            f"  src={ev.source:<10} rule={sc.rule_score:+.3f} "
             f"P(profit)={sc.prob_profit*100:5.1f}% E[r]={_pct(sc.expected_return)} "
             f"n_analogs={sc.n_analogs}"
         )

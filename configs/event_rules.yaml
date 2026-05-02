@@ -104,6 +104,26 @@ events:
     magnitude_cap: 1.0
     description: "Tax / FSC / SEC investigation disclosed."
 
+# Per-event-type magnitude scale by source. SUE / revision-z magnitudes
+# live on a different scale than fallback %-surprises, so we hold a small
+# table that the Scorer uses to swap `magnitude_scale` and `magnitude_cap`
+# when the event's `extras.magnitude_source` is one of these.
+#
+# Reference values:
+#   * SUE: empirically, |SUE| > 1.0 is meaningful, |SUE| > 4 is extreme
+#     (Bernard-Thomas 1989). Scale 1.0, cap 4.0.
+#   * revision_z: Stickel (1991) reports useful revisions when the
+#     dispersion-scaled change exceeds 0.5; cap at 3.0 to avoid outliers.
+magnitude_source_overrides:
+  EARNINGS_BEAT:
+    sue:               { scale: 1.0, cap: 4.0 }
+    baseline_adjusted: { scale: 0.10, cap: 2.5 }
+  EARNINGS_MISS:
+    sue:               { scale: 1.0, cap: 4.0 }
+    baseline_adjusted: { scale: 0.10, cap: 2.5 }
+  ANALYST_TARGET_UP:
+    revision_z:        { scale: 0.5, cap: 3.0 }
+
 # Aggregation: when multiple events fire on the same (ticker, date),
 # the rule score is sum-with-decay rather than plain sum, so 5 small
 # upgrades don't dominate one big contract win.
@@ -113,6 +133,19 @@ aggregation:
 
 # Horizon override: if an event has no per-type horizon, use this.
 default_horizon_days: 20
+
+# Pre-event runup dampener (Lee-Swaminathan 2000; Hong-Stein 1999):
+# catalysts on stocks that already ran up tend to deliver smaller drift.
+# rule_score is multiplied by  max(floor, 1 - max(0, runup) * coef).
+# Disable by setting coef: 0.0.
+pre_event_runup:
+  coef: 1.5
+  floor: 0.2
+
+# Use benchmark-adjusted (excess / abnormal) returns when computing analog
+# realized returns and the empirical posterior. Closer in spirit to
+# MacKinlay (1997) event-study CARs than to raw cumulative returns.
+use_abnormal_returns: true
 
 # Bayesian posterior settings — see scoring/posterior.py.
 posterior:

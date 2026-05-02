@@ -107,7 +107,12 @@ class _StubAdapter(MarketAdapter):
         }, index=idx)
 
     def benchmark(self, start, end):
-        return self.prices("BENCH", start, end)
+        # Flat benchmark so abnormal_return == asset_return for this stub.
+        idx = pd.bdate_range(pd.Timestamp(start), periods=30)
+        return pd.DataFrame({
+            "open": [100.0] * 30, "high": [100.0] * 30, "low": [100.0] * 30,
+            "close": [100.0] * 30, "volume": [1] * 30,
+        }, index=idx)
 
     def universe(self):
         return ["T"]

@@ -19,7 +19,7 @@ from catalyst.types import Event, EventType, Market
 class CsvEventStore(EventStore):
     columns = [
         "market", "ticker", "event_type", "occurred_at",
-        "magnitude", "source", "confidence", "raw_json",
+        "magnitude", "source", "confidence", "raw_json", "extras_json",
     ]
 
     def __init__(self, path: str | Path):
@@ -41,13 +41,18 @@ class CsvEventStore(EventStore):
         else:
             self._df = pd.DataFrame(columns=self.columns)
 
-    def _row_to_event(self, row: pd.Series) -> Event:
-        raw = {}
-        if isinstance(row["raw_json"], str) and row["raw_json"]:
+    @staticmethod
+    def _parse_json_cell(cell: object) -> dict:
+        if isinstance(cell, str) and cell:
             try:
-                raw = json.loads(row["raw_json"])
+                return json.loads(cell)
             except json.JSONDecodeError:
-                raw = {"_unparsed": row["raw_json"]}
+                return {"_unparsed": cell}
+        return {}
+
+    def _row_to_event(self, row: pd.Series) -> Event:
+        raw = self._parse_json_cell(row.get("raw_json"))
+        extras = self._parse_json_cell(row.get("extras_json"))
         confidence = row.get("confidence")
         return Event(
             ticker=str(row["ticker"]),
@@ -58,6 +63,7 @@ class CsvEventStore(EventStore):
             source=str(row["source"]),
             raw=raw,
             confidence=float(confidence) if pd.notna(confidence) else 1.0,
+            extras=extras,
         )
 
     def append(self, events: Iterable[Event]) -> None:
@@ -72,6 +78,7 @@ class CsvEventStore(EventStore):
                 "source": ev.source,
                 "confidence": ev.confidence,
                 "raw_json": json.dumps(ev.raw, ensure_ascii=False) if ev.raw else "",
+                "extras_json": json.dumps(ev.extras, ensure_ascii=False) if ev.extras else "",
             })
         if not rows:
             return

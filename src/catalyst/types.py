@@ -40,9 +40,23 @@ class Event:
     source: str
     raw: dict[str, Any] = field(default_factory=dict)
     confidence: float = 1.0
+    # Optional numeric/categorical fields used by the SUE/revision-z scorers
+    # and the pre-event-runup dampener. See docs in scoring.py.
+    # Recognized keys (all optional):
+    #   "magnitude_source" : str  -- one of {"sue","revision_z","fallback_pct","car_only","ordinal"}
+    #   "consensus_stdev"  : float -- σ of analyst EPS estimates (Bernard-Thomas 1989)
+    #   "n_estimates"      : int   -- number of analysts in consensus
+    #   "consensus_dispersion": float -- σ of analyst price targets (Stickel 1991)
+    #   "prior_target"     : float -- prior consensus target (for revision-z)
+    #   "pre_event_runup"  : float -- asset return over [-20, -1] trading days
+    #   "season_baseline"  : float -- cross-sectional median magnitude in current season
+    extras: dict[str, Any] = field(default_factory=dict)
 
     def key(self) -> tuple[str, str, str, str]:
         return (self.market.value, self.ticker, self.occurred_at.isoformat(), self.event_type.value)
+
+    def magnitude_source(self) -> str:
+        return str(self.extras.get("magnitude_source", "fallback_pct"))
 
 
 @dataclass(frozen=True)
