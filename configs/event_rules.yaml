@@ -1,0 +1,127 @@
+# Default rule-based weights for event types.
+#
+# weight       : positive = bullish catalyst, negative = bearish.
+# horizon_days : default forward holding window used when scoring.
+# min_magnitude: events below this magnitude are ignored entirely.
+# magnitude_*  : piecewise scaling. multiplier(m) = clamp(m / scale, 0, cap).
+#
+# These are intentionally conservative starting weights. Tune them with
+# `catalyst backtest --calibrate-weights` once you have enough history.
+
+events:
+  CONTRACT_WIN:
+    weight: 1.5
+    horizon_days: 20
+    # magnitude := contract_amount / market_cap
+    min_magnitude: 0.01
+    magnitude_scale: 0.10
+    magnitude_cap: 3.0
+    description: "Single-contract revenue disclosure (DART 단일판매·공급계약, 8-K Item 1.01)."
+
+  EARNINGS_BEAT:
+    weight: 1.2
+    horizon_days: 30
+    # magnitude := (actual_eps - consensus_eps) / |consensus_eps|
+    min_magnitude: 0.05
+    magnitude_scale: 0.20
+    magnitude_cap: 2.5
+    description: "Quarterly EPS surprise above consensus (PEAD)."
+
+  EARNINGS_MISS:
+    weight: -1.0
+    horizon_days: 30
+    min_magnitude: 0.05
+    magnitude_scale: 0.20
+    magnitude_cap: 2.5
+    description: "Quarterly EPS surprise below consensus."
+
+  GUIDANCE_RAISE:
+    weight: 1.0
+    horizon_days: 40
+    # magnitude := (new_guide - old_guide) / |old_guide|
+    min_magnitude: 0.03
+    magnitude_scale: 0.10
+    magnitude_cap: 2.0
+    description: "Forward guidance raised."
+
+  ANALYST_TARGET_UP:
+    weight: 0.7
+    horizon_days: 15
+    # magnitude := (new_target - old_target) / old_target
+    min_magnitude: 0.05
+    magnitude_scale: 0.15
+    magnitude_cap: 1.5
+    description: "Sell-side target price raised."
+
+  ANALYST_RATING_UP:
+    weight: 0.5
+    horizon_days: 15
+    min_magnitude: 1.0
+    magnitude_scale: 1.0
+    magnitude_cap: 1.0
+    description: "Sell-side rating upgrade (e.g. Hold -> Buy)."
+
+  BUYBACK:
+    weight: 0.6
+    horizon_days: 30
+    # magnitude := buyback_amount / market_cap
+    min_magnitude: 0.005
+    magnitude_scale: 0.05
+    magnitude_cap: 2.0
+    description: "Share repurchase announcement."
+
+  INSIDER_BUY:
+    weight: 0.4
+    horizon_days: 30
+    # magnitude := insider_buy_value / market_cap
+    min_magnitude: 0.001
+    magnitude_scale: 0.01
+    magnitude_cap: 1.5
+    description: "Insider open-market purchase."
+
+  CAPITAL_RAISE:
+    weight: -0.6
+    horizon_days: 20
+    # magnitude := offering_size / market_cap
+    min_magnitude: 0.02
+    magnitude_scale: 0.10
+    magnitude_cap: 2.0
+    description: "Dilutive equity issuance / paid-in capital increase."
+
+  CONVERTIBLE_ISSUE:
+    weight: -0.3
+    horizon_days: 20
+    min_magnitude: 0.02
+    magnitude_scale: 0.10
+    magnitude_cap: 1.5
+    description: "Convertible bond / BW / EB issuance."
+
+  REGULATORY_PROBE:
+    weight: -0.8
+    horizon_days: 20
+    min_magnitude: 1.0
+    magnitude_scale: 1.0
+    magnitude_cap: 1.0
+    description: "Tax / FSC / SEC investigation disclosed."
+
+# Aggregation: when multiple events fire on the same (ticker, date),
+# the rule score is sum-with-decay rather than plain sum, so 5 small
+# upgrades don't dominate one big contract win.
+aggregation:
+  decay: 0.6     # k-th event (sorted by |rule_score| desc) is multiplied by decay**(k-1)
+  cap: 5.0       # absolute cap on aggregated rule score per (ticker, date)
+
+# Horizon override: if an event has no per-type horizon, use this.
+default_horizon_days: 20
+
+# Bayesian posterior settings — see scoring/posterior.py.
+posterior:
+  # Beta(alpha_prior, beta_prior) prior over P(profit). Beta(2,2) ~ uniform-ish
+  # but pulls posterior toward 0.5 when n_analogs is small.
+  alpha_prior: 2.0
+  beta_prior: 2.0
+  # Minimum number of historical analog events required before the posterior
+  # is reported. Below this threshold, prob_profit falls back to the prior mean.
+  min_analogs: 5
+  # When matching analogs, allow magnitude to differ by at most this ratio.
+  magnitude_band: 0.5

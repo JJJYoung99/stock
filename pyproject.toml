@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "catalyst"
+version = "0.1.0"
+description = "Event-driven research & backtest framework for KR/US equities. Turns qualitative news catalysts (contract wins, earnings beats, analyst upgrades) into a numeric score with a Bayesian posterior probability-of-profit and historical risk metrics."
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "catalyst contributors" }]
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+kr = [
+    "FinanceDataReader>=0.9",
+    "pykrx>=1.0.45",
+    "OpenDartReader>=0.2.2",
+]
+us = [
+    "yfinance>=0.2",
+    "finnhub-python>=2.4",
+    "sec-edgar-downloader>=5.0",
+]
+nlp = [
+    "transformers>=4.40",
+    "torch>=2.2",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+catalyst = "catalyst.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+catalyst = ["../configs/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
